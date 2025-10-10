@@ -1,0 +1,99 @@
+---
+title: "hw2_alzheimers"
+author: "Emma Bradley"
+date: "2025-10-06"
+output: pdf_document
+---
+
+Diagnosis:
+0 - normal cognition (base)
+1 - mild cognitive impairment due to AD
+2 - dementia due to AD
+
+Cognitive and behavioral measures: NACCMMSE, MOTSEV, DISNSEV, ANXSEV, NACCGDS
+Physiological measures: BPSYS, BPDIAS, HRATE
+Demographics: Age, Educ, Female, Height, Weight
+
+```{r}
+library(glmnet) 
+set.seed(533)
+```
+
+```{r}
+raw.data = read.csv('alzheimer_data.csv')
+
+keep.cols = c( "diagnosis",
+  # cognitive and behavioral measures
+  "naccmmse", "motsev", "disnsev", "anxsev", "naccgds",
+  # physiological measures
+  "bpsys", "bpdias", "hrate",
+  # demographics
+  "age", "educ", "female", "height", "weight"
+)
+
+df = raw.data[, keep.cols, drop = FALSE]
+# 2700 rows
+head(df)
+```
+
+```{r}
+X = as.matrix(df[, 2:14]) # predictors
+Y =  df$diagnosis # target
+# Multinomial logistic regression
+model =  glmnet(X, Y, family = "multinomial")
+summary(model)
+plot(model)
+```
+
+cross-validation with 5 folds
+both cv5 and cv10 performed better with alpha=1 (LASSO)
+
+```{r}
+cv5  = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 5)
+pred5  = predict(cv5, newx = X, s = "lambda.min", type = "class")
+features5 = lapply(coef(cv5, s = "lambda.min"), function(mat) {
+  rownames(mat)[which(mat != 0)]})
+features5
+coef(cv5, s = "lambda.min")
+```
+
+Cross-validation with 10 folds
+```{r}
+cv10 = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 10)
+pred10 = predict(cv10, newx = X, s = "lambda.min", type = "class")
+features10 = lapply(coef(cv10, s = "lambda.min"), function(mat) {
+  rownames(mat)[which(mat != 0)]})
+features10
+coef(cv10, s = "lambda.min")
+```
+
+Cross-validation with a single fold (training/test split)
+```{r}
+# single fold (train/test split)
+# 80 / 20
+set.seed(533)
+train_idx = sample(seq_len(nrow(X)), size = 0.8 * nrow(X)) #
+cv1 = glmnet(X[train_idx, ], Y[train_idx], family = "multinomial")
+pred = predict(cv1, newx = X[-train_idx, ], s = 0.01, type = "class")
+accuracy.1fold = mean(pred == Y[-train_idx])
+```
+Results
+```{r}
+results = data.frame(
+  Method = c("1-Fold (Train/Test)", "5-Fold", "10-Fold"),
+  Accuracy = c(accuracy.1fold, mean(pred5 == Y), mean(pred10 == Y))
+)
+print(results)
+```
+same results for both 5 and 10 fold. The models were likely fit similarly because there is plenty of data to fit the models on. So splitting into 5 vs 10 folds didnt make a huge difference
+```{r}
+cv5$lambda.min
+cv10$lambda.min
+mean(cv5$cvm)
+mean(cv10$cvm)
+```
+
+```{r}
+plot(cv5, xvar = "lambda", label = TRUE)
+plot(cv10, xvar = "lambda", label = TRUE)
+```
