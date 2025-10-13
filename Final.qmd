@@ -1,5 +1,5 @@
 ---
-title: "Alzheimers"
+title: "Statistical Learning with the Alzheimer’s Dataset"
 format: pdf
 editor: visual
 ---
@@ -37,8 +37,6 @@ data$diagnosis_bin <- factor(data$diagnosis_bin, levels = c(0, 1), labels = c("N
 cat("\n", "Category count:", "\n")
 table(data$diagnosis_bin)
 ```
-
-Afterward, we checked for multicollinearity by looking at the correlation matrix and removed any variables with high pairwise correlations. This ensured that no redundant features would lead to biased coefficient estimates.
 
 Once the data were prepared, we implemented logistic regression using a stepwise model selection approach based on the AIC. This approach iteratively added or removed predictors to identify the most parsimonious model that balanced fit and complexity. We also performed 5-fold cross-validation to look at predictive performance. Finally, the model was evaluated on a test set using evaluation metrics such as accuracy, sensitivity, specificity, AUC. 
 
@@ -103,9 +101,9 @@ Interestingly, age showed a negative coefficient in the logistic model (−0.475
 
 ## 3. Multinomial Logistic Regression Model
 
-Next we will build a multinomial logsitic regression model so that we can see how adding in the third diagnosis option affects our results.
+Multinomial logistic regression builds upon the strengths of logistic regression by expanding the response variable to more than two classes. Within the context of our dataset, we are now able to differeniate between mild cognitive decline and dementia due to Alzheimer's Disease. An added benefit of multinomial logistic regression is that despite its increase in complexity, our model remains easy to interpret and apply. Our coefficients are still relevant and interprettable via their log-odds.
 
-Let's go ahead and select the same predictors as we used before to build the multinomial logsitic regression model.
+Next we will build a multinomial logsitic regression model so that we can see how adding in the third diagnosis option affects our results. Let's go ahead and select the same predictors as we used before to build the multinomial logsitic regression model.
 
 ```{r}
 raw.data = read.csv(here('alzheimer_data.csv'))
@@ -139,8 +137,8 @@ We will use the package `glmnet` as it has a built in function that allows us to
 X = as.matrix(df[, 2:19]) # predictors
 Y =  df$diagnosis # target
 model =  glmnet(X, Y, family = "multinomial")
-summary(model)
-plot(model)
+#summary(model)
+#plot(model)
 ```
 
 #### Cross-Validation with 5 Folds

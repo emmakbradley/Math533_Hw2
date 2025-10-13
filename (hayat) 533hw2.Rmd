@@ -64,7 +64,7 @@ form_all
 
 fit_step_cv <- train(
   form_all,
-  data = train,
+  data = train_data,
   method = "glmStepAIC",           
   family = binomial,
   metric = "ROC",                 
@@ -102,6 +102,7 @@ cm$byClass[c("Sensitivity", "Specificity")]
 
 
 ```
+
 
 
 
