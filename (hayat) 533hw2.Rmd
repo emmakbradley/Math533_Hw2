@@ -1,0 +1,119 @@
+---
+title: "MATH533HW2 (logistic)"
+author: "Hayat Botan"
+date: "2025-10-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+data = read.csv("C:/Users/19162/Downloads/alzheimer_data.csv")
+
+names(data)[3:57] #here is the variables we'll use as possible predictors 
+predictor_names = names(data)[3:57] 
+
+
+```
+
+```{r}
+#names(data)       
+#str(data)         
+#summary(data)      
+#head(data)         
+
+```
+
+```{r}
+
+#recode levels 1 and 2 to be 1
+data$diagnosis_bin <- ifelse(data$diagnosis %in% c(1, 2), 1, 0)
+
+#convert to factors 
+data$diagnosis_bin <- factor(data$diagnosis_bin, levels = c(0, 1), labels = c("NoAD", "AD"))
+
+#table(data$diagnosis_bin)
+
+
+```
+
+
+```{r}
+library(caret)
+set.seed(123)
+
+split_idx <- createDataPartition(data$diagnosis_bin, p = 0.8, list = FALSE)
+train_data <- data[split_idx, ]
+test_data  <- data[-split_idx, ]
+
+#cross validation
+ctrl <- trainControl(
+  method = "cv", number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = TRUE
+)
+
+form_all <- as.formula(
+  paste("diagnosis_bin ~", paste(predictor_names, collapse = " + "))
+)
+form_all
+
+fit_step_cv <- train(
+  form_all,
+  data = train,
+  method = "glmStepAIC",           
+  family = binomial,
+  metric = "ROC",                 
+  trControl = ctrl,
+  preProcess = c("center", "scale")
+)
+
+fit_step_cv
+
+```
+
+```{r}
+
+#to look at the coefficients of the final model from above 
+final_fit <- fit_step_cv$finalModel
+summary(final_fit)
+
+```
+
+
+```{r}
+
+library(pROC)
+
+#evaluate everything on the test set and look at evaluation metrics 
+p_test <- predict(fit_step_cv, newdata = test_data, type = "prob")[, "AD"]
+roc_obj  <- roc(test_data$diagnosis_bin, p_test)
+auc_test <- auc(roc_obj)
+pred_class <- factor(ifelse(p_test > 0.5, "AD", "NoAD"),
+                     levels = c("NoAD", "AD"))
+cm <- confusionMatrix(pred_class, test_data$diagnosis_bin)
+auc_test
+cm$overall["Accuracy"]
+cm$byClass[c("Sensitivity", "Specificity")]
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
