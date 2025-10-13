@@ -60,15 +60,15 @@ form_all <- as.formula(
 )
 form_all
 
-fit_step_cv <- train(
+invisible(fit_step_cv <- train(
   form_all,
-  data = train,
+  data = train_data,
   method = "glmStepAIC",           
   family = binomial,
   metric = "ROC",                 
   trControl = ctrl,
   preProcess = c("center", "scale")
-)
+))
 
 fit_step_cv
 ```
@@ -141,11 +141,18 @@ model =  glmnet(X, Y, family = "multinomial")
 #plot(model)
 ```
 
+Next we will perform model validation and selection to improve upon the base model we already built. To do so, we will use cross validation with 5 and 10 folds as well as train/test split. This performs several tasks in one - it allows us to compare models as well as ensure that our models don't overfit on the data.
+
 #### Cross-Validation with 5 Folds
 
 ```{r}
 cv5  = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 5)
 pred5  = predict(cv5, newx = X, s = "lambda.min", type = "class")
+
+# rmse
+Y_num = as.numeric(Y)
+pred_num5 = as.numeric(pred5)
+rmse5 = sqrt(mean((Y_num - pred_num5)^2))
 ```
 
 #### Cross-Validation with 10 Folds
@@ -153,6 +160,10 @@ pred5  = predict(cv5, newx = X, s = "lambda.min", type = "class")
 ```{r}
 cv10 = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 10)
 pred10 = predict(cv10, newx = X, s = "lambda.min", type = "class")
+
+# rmse
+pred_num10 = as.numeric(pred10)
+rmse10 = sqrt(mean((Y_num - pred_num10)^2))
 ```
 
 #### Train/Test Split
@@ -164,14 +175,23 @@ train_idx = sample(seq_len(nrow(X)), size = 0.8 * nrow(X))
 cv1 = glmnet(X[train_idx, ], Y[train_idx], family = "multinomial")
 pred = predict(cv1, newx = X[-train_idx, ], s = 0.01, type = "class")
 accuracy.ttsplit = mean(pred == Y[-train_idx])
+
+# rmse
+Y_test_num = as.numeric(Y[-train_idx])
+pred_num = as.numeric(pred)
+rmse = sqrt(mean((Y_test_num - pred_num)^2))
+print(paste("RMSE:", round(rmse, 3)))
 ```
 
 #### Multinomial Logistic Regression Model Results
 
+Overall, our strongest model was the one built using 10-fold cross validation. The accuracy of this model is 87% and its RMSE is the lowest out of the models that we tested. That being said, it is important to note that the model build from 5-fold cross validation has very similar statistics. This increases the confidence that I have in my model, as it tells me that our data was robust enough (2,700 rows) to properly train a model.
+
 ```{r}
 results = data.frame(
   Method = c("1-Fold (Train/Test)", "5-Fold", "10-Fold"),
-  Accuracy = c(accuracy.ttsplit, mean(pred5 == Y), mean(pred10 == Y))
+  Accuracy = c(accuracy.ttsplit, mean(pred5 == Y), mean(pred10 == Y)),
+  RMSE = c(rmse, rmse5, rmse10)
 )
 print(results)
 ```
