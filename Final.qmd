@@ -9,7 +9,12 @@ library(caret)
 library(pROC)
 library(glmnet) 
 library(here)
+library(readr)
+library(dplyr)
+library(tibble)
 ```
+
+## Homework Group 7: Emma Bradley, Hayat Boton, Payas Parab
 
 ## 1. Multiple Linear Regression Models
 
@@ -50,9 +55,180 @@ The reason is that regular linear regression finds coefficients that minimize pr
 
 This helps create a simpler model that is simpler, easier to interpret, and less susceptible to noise from unimportant features.
 
-Here's the implementation:
+**DISCLAIMER:** The following code was translated using ChatGPT from the original Python: we have included the original Python code here as well for clearer understanding of logic and alignment to analysis .<https://chatgpt.com/share/68ec5896-3f38-8007-bacf-f4524206a9fa>
 
-```{python}
+**R Code for QMD Compilation:**
+
+```{r}
+# ------------------------------------------------------------
+# Model Comparison and Selection Using Cross-Validation and LASSO (R)
+# ------------------------------------------------------------
+# install.packages(c("readr","dplyr","caret","glmnet","tibble"))
+
+set.seed(42)
+
+# Load and prepare data
+df <- read_csv("alzheimer_data.csv", show_col_types = FALSE)
+
+# Target: left hippocampus / intracranial volume
+y <- df$lhippo / df$naccicv
+
+# Predictors (saturated set)
+predictors <- c(
+  "naccmmse","motsev","disnsev","anxsev","naccgds",
+  "bpsys","bpdias","hrate","age","educ","female","height","weight"
+)
+
+X <- df[, predictors]
+
+# Helper to compute RMSE and R^2
+rmse_fun <- function(truth, pred) sqrt(mean((truth - pred)^2))
+r2_fun   <- function(truth, pred) {
+  ss_res <- sum((truth - pred)^2)
+  ss_tot <- sum((truth - mean(truth))^2)
+  1 - ss_res/ss_tot
+}
+
+# Helper function to compute CV metrics with clean output formatting
+evaluate_model <- function(X, y, name = "model") {
+  res <- list()
+  dat <- as.data.frame(X) %>% mutate(y = y)
+
+  # ----- Single train/test split (80/20)
+  idx_tr <- createDataPartition(dat$y, p = 0.80, list = FALSE)
+  tr <- dat[idx_tr, , drop = FALSE]
+  te <- dat[-idx_tr, , drop = FALSE]
+
+  fit_split <- lm(y ~ ., data = tr)
+  ypred_te  <- predict(fit_split, newdata = te)
+  rmse_split <- rmse_fun(te$y, ypred_te)
+  r2_split   <- r2_fun(te$y, ypred_te)
+
+  res[[length(res) + 1]] <- tibble(
+    Model = name,
+    `CV Type` = "Single Split (80/20)",
+    RMSE = sprintf("%.6f", rmse_split),
+    `R²` = sprintf("%.6f", r2_split)
+  )
+
+  # ----- 5-fold CV
+  ctrl5 <- trainControl(method = "cv", number = 5)
+  fit5  <- train(y ~ ., data = dat, method = "lm", trControl = ctrl5)
+  res5  <- fit5$results[which.max(fit5$results$Rsquared), ]
+  res[[length(res) + 1]] <- tibble(
+    Model = name,
+    `CV Type` = "5-Fold",
+    RMSE = sprintf("%.6f ± %.6f", res5$RMSE, res5$RMSESD),
+    `R²`  = sprintf("%.6f ± %.6f", res5$Rsquared, res5$RsquaredSD)
+  )
+
+  # ----- 10-fold CV
+  ctrl10 <- trainControl(method = "cv", number = 10)
+  fit10  <- train(y ~ ., data = dat, method = "lm", trControl = ctrl10)
+  res10  <- fit10$results[which.max(fit10$results$Rsquared), ]
+  res[[length(res) + 1]] <- tibble(
+    Model = name,
+    `CV Type` = "10-Fold",
+    RMSE = sprintf("%.6f ± %.6f", res10$RMSE, res10$RMSESD),
+    `R²`  = sprintf("%.6f ± %.6f", res10$Rsquared, res10$RsquaredSD)
+  )
+
+  # ----- LOOCV
+  ctrl_loo <- trainControl(method = "LOOCV")
+  fit_loo  <- train(y ~ ., data = dat, method = "lm", trControl = ctrl_loo)
+  res_loo  <- fit_loo$results
+  # caret's LOOCV often returns only means; SD may be NA. We format anyway.
+  rmse_mean <- res_loo$RMSE[1]
+  rmse_sd   <- if (!is.null(res_loo$RMSESD)) res_loo$RMSESD[1] else NA_real_
+
+  res[[length(res) + 1]] <- tibble(
+    Model = name,
+    `CV Type` = "LOOCV",
+    RMSE = if (is.na(rmse_sd)) sprintf("%.6f", rmse_mean) else sprintf("%.6f ± %.6f", rmse_mean, rmse_sd),
+    `R²`  = "N/A"
+  )
+
+  bind_rows(res)
+}
+
+# -------------------------
+# Evaluate saturated model
+# -------------------------
+cat("Evaluating Saturated Model...\n")
+res_saturated <- evaluate_model(X, y, name = "Saturated")
+print(res_saturated)
+
+# -------------------------
+# LASSO feature selection
+# -------------------------
+cat("\nPerforming LASSO Feature Selection...\n")
+
+# glmnet requires a numeric matrix (no intercept column)
+x_mat <- model.matrix(~ . , data = X)[, -1, drop = FALSE]
+cvfit <- cv.glmnet(
+  x = x_mat,
+  y = y,
+  alpha = 1,         # LASSO
+  nfolds = 10,
+  standardize = TRUE
+)
+
+# Extract selected features at lambda.min
+coefs <- coef(cvfit, s = "lambda.min")
+sel   <- rownames(coefs)[as.numeric(coefs) != 0]
+selected_features <- setdiff(sel, "(Intercept)")
+
+cat("\nSelected Features:\n")
+if (length(selected_features) == 0) {
+  cat("- (none selected; all coefficients shrank to zero)\n")
+} else {
+  for (f in selected_features) cat(paste0("- ", f, "\n"))
+}
+
+# -------------------------
+# Evaluate reduced model
+# -------------------------
+cat("\nEvaluating Reduced Model...\n")
+if (length(selected_features) == 0) {
+  # Fallback: if none selected, just re-use saturated to avoid errors
+  res_reduced <- evaluate_model(X, y, name = "Reduced (LASSO)")
+} else {
+  X_reduced <- X[, selected_features, drop = FALSE]
+  res_reduced <- evaluate_model(X_reduced, y, name = "Reduced (LASSO)")
+}
+print(res_reduced)
+
+# -------------------------
+# Model comparison summary (use 10-Fold row)
+# -------------------------
+cat("\nModel Comparison Summary:\n")
+get_10fold_rmse <- function(df) {
+  row <- df %>% filter(`CV Type` == "10-Fold") %>% slice(1)
+  # parse "mean ± sd" or "mean"
+  as.numeric(strsplit(row$RMSE, " ")[[1]][1])
+}
+get_10fold_r2 <- function(df) {
+  row <- df %>% filter(`CV Type` == "10-Fold") %>% slice(1)
+  as.numeric(strsplit(row$`R²`, " ")[[1]][1])
+}
+
+rmse_reduced    <- get_10fold_rmse(res_reduced)
+rmse_saturated  <- get_10fold_rmse(res_saturated)
+r2_reduced      <- get_10fold_r2(res_reduced)
+r2_saturated    <- get_10fold_r2(res_saturated)
+
+rmse_diff <- rmse_saturated - rmse_reduced
+r2_diff   <- r2_reduced - r2_saturated
+
+cat(sprintf("RMSE Improvement: %.6f\n", rmse_diff))
+cat(sprintf("R² Improvement: %.6f\n",   r2_diff))
+
+```
+
+**ORIGINAL PYTHON CODE:**
+
+``` python
+{python}
 # ------------------------------------------------------------
 # Model Comparison and Selection Using Cross-Validation and LASSO
 # ------------------------------------------------------------
@@ -166,13 +342,12 @@ r2_diff = r2_reduced - r2_saturated
 
 print(f"RMSE Improvement: {rmse_diff:.6f}")
 print(f"R² Improvement: {r2_diff:.6f}")
-
 ```
 
 The results of the model selection and error testing were as follows:
 
 | Model | CV Type | RMSE | R2 |
-|----|----|----|----|
+|------------------|-------------------|------------------|------------------|
 | Saturated | Single Split (80/20) | 0.000290 | 0.168850 |
 | Saturated | 5-Fold | 0.000302 ± 0.000013 | 0.182854 ± 0.013367 |
 | Saturated | 10-Fold | 0.000302 ± 0.000019 | 0.181949 ± 0.032181 |
@@ -205,8 +380,56 @@ In summary, cross-validation results indicate that the reduced LASSO model gener
 
 We then go on to interpret the coefficients of our final selected model.
 
-```{python}
+**DISCLAIMER:** The following code was translated using ChatGPT from the original Python: we have included the original Python code here as well for clearer understanding of logic and alignment to analysis. <https://chatgpt.com/share/68ec5896-3f38-8007-bacf-f4524206a9fa>
 
+**Compilable R Code:**
+
+```{r}
+
+all_features   <- colnames(X)
+kept_features  <- selected_features
+removed_features <- setdiff(all_features, kept_features)
+
+cat("\n=== feature selection summary ===\n")
+cat(sprintf("total predictors: %d\n", length(all_features)))
+cat(sprintf("features kept by lasso (%d): %s\n",
+            length(kept_features),
+            ifelse(length(kept_features) == 0, "[]", paste(kept_features, collapse = ", "))))
+cat(sprintf("features removed by lasso (%d): %s\n",
+            length(removed_features),
+            ifelse(length(removed_features) == 0, "[]", paste(removed_features, collapse = ", "))))
+
+if (length(kept_features) == 0) {
+  stop("No features selected by LASSO; cannot fit a reduced model.")
+}
+
+# Fit final model on selected features for interpretation
+X_final <- X[, kept_features, drop = FALSE]
+final_fit <- lm(y ~ ., data = as.data.frame(X_final))
+
+# Build coefficients table (excluding intercept), sorted by |coef|
+coefs <- coef(final_fit)
+coefs_no_int <- coefs[setdiff(names(coefs), "(Intercept)")]
+coef_df <- tibble(
+  feature = names(coefs_no_int),
+  coefficient = as.numeric(coefs_no_int)
+) %>%
+  mutate(abs_coef = abs(coefficient)) %>%
+  arrange(desc(abs_coef)) %>%
+  select(-abs_coef)
+
+cat("\n=== final selected model coefficients (lm) ===\n")
+print(coef_df, n = nrow(coef_df))
+
+# Detailed model summary (t-stats, p-values, R^2, etc.)
+cat("\n=== R OLS summary for final model (lm) ===\n")
+print(summary(final_fit))
+```
+
+**Original Python code:**
+
+``` python
+# Original Python code
 # assumes previous cell is run
 from sklearn.linear_model import LinearRegression
 import statsmodels.api as sm
@@ -392,9 +615,7 @@ model =  glmnet(X, Y, family = "multinomial")
 #plot(model)
 ```
 
-Next we will perform model validation and selection to improve upon the base model we already built. To do so, we will use cross validation with 5 and 10 folds as well as train/test split. Specifying `alpha=1` here performs LASSO regression which
-
-This performs several tasks in one - it allows us to compare models as well as ensure that our models don't overfit on the data.
+Next we will perform model validation and selection to improve upon the base model we already built. To do so, we will use cross validation with 5 and 10 folds as well as train/test split. Specifying `alpha=1` here performs LASSO regression which allows us to do variable selection. Overall cross validation as seen here performs several tasks in one - it allows us to compare models as well as ensure that our models don't overfit on the data.
 
 #### Cross-Validation with 5 Folds
 
@@ -433,7 +654,6 @@ accuracy.ttsplit = mean(pred == Y[-train_idx])
 Y_test_num = as.numeric(Y[-train_idx])
 pred_num = as.numeric(pred)
 rmse = sqrt(mean((Y_test_num - pred_num)^2))
-print(paste("RMSE:", round(rmse, 3)))
 ```
 
 #### Multinomial Logistic Regression Model Results
@@ -449,4 +669,49 @@ results = data.frame(
 print(results)
 ```
 
+#### Final Model and Confusion Matrix
+
+```{r}
+set.seed(533)
+train_idx = sample(seq_len(nrow(X)), size = 0.8 * nrow(X))
+
+# winning model
+cv10 = cv.glmnet(
+  X[train_idx, ],
+  Y[train_idx],
+  family = "multinomial",
+  alpha = 1,
+  nfolds = 10
+)
+best_lambda = cv10$lambda.min
+
+# Predict on test set 
+pred_test = predict(
+  cv10,
+  newx = X[-train_idx, ],
+  s = best_lambda,
+  type = "class"
+)
+
+pred_test = as.factor(as.vector(pred_test))
+Y_test = as.factor(Y[-train_idx])
+confusionMatrix(pred_test, Y_test)
+```
+
 #### Interpretting the Coefficients of the Multinomial Logistic Regression Model
+
+Outputted below are the coefficients of the 10-fold cross validation model obtained using automatic feature selection from LASSO.
+
+The first observation that sticks out to me is that LASSO removed the majority of the predictors for the mild diagnosis class as most coefficients are zero. The exception to this are the `AGITSEV` (agitation or aggression severity), `DIGIF` (digit span forward trials correct), and the `LIPOSCN` (left posterior cingulate gray matter volume) coefficients, with that of the `LIPOSCN` being the greatest in magnitude. That being said, the `LIPOSCN` coefficient disappears for the no diagnosis class and is significantly negative for the severe diagnosis class. This tells me that the `LIPOSCN`predictor helps the model distinguish between the two diagnosis classes. This is important because as seen by the confusion matrix, the model struggles the most with distinguishing between classes 1 and 2.
+
+The next coefficient that sticks out to me is **`cdrglob`** (clinical dimentia rating - global score) as it has a value of -6.2 for the no diagnosis class, 0 for the mild diagnosis class, and 3.5 for the severe diagnosis class. This indicates that a greater CDR rating significantly decreases the odds of the patient not having Alzheimer's Disease, i.e. that a diagnosis is highly likely. This makes sense, as dementia is the primary symptom with Alzheimer's, so the CDR rating has a direct effect on diagnosis.
+
+The other significant coefficient in the severe diagnosis group is `hallsev` (hallucinations severity). That being said, this coefficient is zero for the other classes. This tells me that the presence of any level of hallucinations strongly increases the odds that Alzheimer's Disease is present.
+
+Finally, the cognitive function coefficients `naccmmse` (Total MMSE score using D-L-R-O-W) and `animals` (total number of animals named in 60 seconds) both helped to distinguish between a non-diagnosis and a diagnosis. Both coefficients are positive for class 0 but negative for class 2, indicating that low scores increase the odds of an Alzheimer's diagnosis. These coefficients also played a strong role in our logistic regression model from earlier, indicating that the multinomial logistic regression model is able to provide further depth and insight into an Alzheimer's diagnosis.
+
+Overall I am satisfied that LASSO was able to reduce the coefficients significantly for many of our predictors.
+
+```{r}
+coef(cv10, s = "lambda.min")
+```
