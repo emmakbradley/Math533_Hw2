@@ -238,3 +238,19 @@ ols = sm.OLS(y, X_sm).fit()
 print("\n=== statsmodels OLS summary for final model ===")
 print(ols.summary())
 ```
+
+**OLS Final Model Results:**
+
+![](images/ols results.png)
+
+The final reduced model, chosen using LASSO, kept 11 out of the 13 predictors and achieved an R² of about **0.192** (adjusted R² = **0.189**). This means the model explains around 19% of the variation in the outcome. While this is not a very high percentage, it is common in behavioral and medical data, where many factors are difficult to measure. The overall F-test (**F(11, 2688) = 58.14, p \< 0.001**) shows that the predictors together are statistically significant.
+
+Several variables stand out as important. **NACCMMSE** (a measure of cognitive performance) has a strong positive effect (**p \< 0.001**), meaning that higher cognitive scores are linked to higher predicted hippocampal ratios. **Age**, **Education**, **Height**, and **Weight** are also statistically significant (**p \< 0.001**). Age and height have negative effects, meaning older and taller individuals tend to have slightly smaller hippocampal ratios. Weight has a small positive effect.
+
+Among behavioral and physiological factors, **Anxiety Severity (ANXSEV)** is significant (**p = 0.018**) and negative, suggesting that higher anxiety levels are related to lower hippocampal ratios. **Disease Severity (DISNSEV)** and **Systolic Blood Pressure (BPSYS)** are only marginally significant (**p ≈ 0.085** and **p ≈ 0.090**), meaning their effects are weak and not fully reliable in this model.
+
+Some predictors such as **NACCGDS**, **Diastolic Blood Pressure (BPDIAS)**, and **Heart Rate (HRATE)** are not significant (**p \> 0.3**). These do not appear to add much unique information after including the other predictors, possibly because they are correlated with related variables.
+
+The **Durbin-Watson value (1.99)** shows that there is no major autocorrelation in the residuals, meaning the errors are not systematically related. The **Condition Number (6.41e+03)** is relatively high, which suggests some **multicollinearity**, or overlap between predictors. This is likely because variables like systolic and diastolic blood pressure or height and weight are correlated with each other.
+
+Overall, the LASSO-selected model provides a simpler and more interpretable version of the full model, while keeping similar predictive accuracy. The most important predictors are **Cognitive Score (NACCMMSE)**, **Age**, **Anxiety Severity (ANXSEV)**, **Education**, **Height**, and **Weight**, which together capture the main patterns in the data.
