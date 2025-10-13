@@ -11,6 +11,257 @@ library(glmnet)
 library(here)
 ```
 
+## 1. Multiple Linear Regression Models
+
+Multiple linear regression allows us to model the relationship between a continuous response variable and multiple predictor variables simultaneously. This approach is valuable for Alzheimer's research as it enables us to:
+
+1.  Quantify the relationship between hippocampal volume (normalized by intracranial volume) and multiple clinical/demographic predictors
+2.  Identify which factors are most strongly associated with hippocampal atrophy
+3.  Make predictions about hippocampal volume based on easily measurable variables
+
+We implemented two multiple regression approaches:
+
+1.  A saturated model using all available predictors
+2.  A reduced model using LASSO feature selection to identify the most important predictors
+
+### Why Use Multiple Linear Regression?
+
+Multiple linear regression is one of the simplest but most useful ways to understand how different factors affect an outcome. Here's why we chose it:
+
+1.  It's easy to understand - each factor gets a number that tells us exactly how it affects hippocampal volume. If a doctor wants to know how blood pressure relates to brain volume, we can give them a clear answer.
+
+2.  It's transparent - unlike more complex models (like neural networks) that work like a "black box", we can see exactly how our model makes its predictions.
+
+3.  It works well with smaller datasets - we don't need thousands of patients to get reliable results.
+
+4.  It tells us which factors matter most - we can clearly see which measurements are most important for predicting hippocampal volume.
+
+### Cross-Validation Schemes
+
+To ensure our models are robust and generalizable, we implemented multiple cross-validation schemes. Cross-validation helps us understand how well our model will perform on new, unseen data by splitting our dataset in different ways. Here's how we evaluated our models:
+
+1.  Single Train-Test Split (80/20): The simplest approach where we randomly set aside 20% of data for testing
+2.  K-Fold Cross-Validation (k=5 and k=10): Splits data into k parts, using each part as a test set once
+3.  Leave-One-Out Cross-Validation (LOOCV): The most thorough approach, testing on each individual patient
+
+We generate a "Reduced" model by leveraging LASSO (Least Absolute Shrinkage and Selection Operator).
+
+The reason is that regular linear regression finds coefficients that minimize prediction error. LASSO does the same thing, but with an additional penalty that encourages some coefficients to become exactly zero. When a coefficient is zero, that variable is excluded from the model.
+
+This helps create a simpler model that is simpler, easier to interpret, and less susceptible to noise from unimportant features.
+
+Here's the implementation:
+
+```{python}
+# ------------------------------------------------------------
+# Model Comparison and Selection Using Cross-Validation and LASSO
+# ------------------------------------------------------------
+
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression, LassoCV
+from sklearn.model_selection import (
+    train_test_split, KFold, LeaveOneOut, cross_val_score
+)
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+# Load and prepare data
+df = pd.read_csv("alzheimer_data.csv")
+
+# Target: left hippocampus / intracranial volume
+y = df["lhippo"] / df["naccicv"]
+
+# Predictors (saturated set)
+predictors = [
+    "naccmmse","motsev","disnsev","anxsev","naccgds",
+    "bpsys","bpdias","hrate","age","educ","female","height","weight"
+]
+X = df[predictors]
+
+# Helper function to compute CV metrics with clean output formatting
+def evaluate_model(model, X, y, name="model"):
+    results = []
+    
+    # Single train/test split (80/20)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42)
+    model.fit(Xtr, ytr)
+    ypred = model.predict(Xte)
+    results.append({
+        "Model": name,
+        "CV Type": "Single Split (80/20)",
+        "RMSE": f"{mean_squared_error(yte, ypred, squared=False):.6f}",
+        "R²": f"{r2_score(yte, ypred):.6f}"
+    })
+
+    # 5-fold CV
+    kf5 = KFold(n_splits=5, shuffle=True, random_state=42)
+    rmse5 = -cross_val_score(model, X, y, cv=kf5, scoring="neg_root_mean_squared_error")
+    r2_5 = cross_val_score(model, X, y, cv=kf5, scoring="r2")
+    results.append({
+        "Model": name,
+        "CV Type": "5-Fold",
+        "RMSE": f"{rmse5.mean():.6f} ± {rmse5.std():.6f}",
+        "R²": f"{r2_5.mean():.6f} ± {r2_5.std():.6f}"
+    })
+
+    # 10-fold CV
+    kf10 = KFold(n_splits=10, shuffle=True, random_state=42)
+    rmse10 = -cross_val_score(model, X, y, cv=kf10, scoring="neg_root_mean_squared_error")
+    r2_10 = cross_val_score(model, X, y, cv=kf10, scoring="r2")
+    results.append({
+        "Model": name,
+        "CV Type": "10-Fold", 
+        "RMSE": f"{rmse10.mean():.6f} ± {rmse10.std():.6f}",
+        "R²": f"{r2_10.mean():.6f} ± {r2_10.std():.6f}"
+    })
+
+    # LOOCV
+    loo = LeaveOneOut()
+    rmse_loocv = -cross_val_score(model, X, y, cv=loo, scoring="neg_root_mean_squared_error")
+    results.append({
+        "Model": name,
+        "CV Type": "LOOCV",
+        "RMSE": f"{rmse_loocv.mean():.6f} ± {rmse_loocv.std():.6f}",
+        "R²": "N/A"
+    })
+
+    return pd.DataFrame(results)
+
+# Evaluate saturated model
+print("Evaluating Saturated Model...")
+saturated = LinearRegression()
+res_saturated = evaluate_model(saturated, X, y, name="Saturated")
+display(res_saturated)
+
+# LASSO feature selection
+print("\nPerforming LASSO Feature Selection...")
+lasso = LassoCV(cv=10, random_state=42)
+lasso.fit(X, y)
+
+# Get selected features
+selected_features = X.columns[lasso.coef_ != 0].tolist()
+print("\nSelected Features:")
+for feature in selected_features:
+    print(f"- {feature}")
+
+# Evaluate reduced model
+print("\nEvaluating Reduced Model...")
+X_reduced = X[selected_features]
+reduced = LinearRegression()
+res_reduced = evaluate_model(reduced, X_reduced, y, name="Reduced (LASSO)")
+display(res_reduced)
+
+# Model comparison summary
+print("\nModel Comparison Summary:")
+best_reduced = res_reduced[res_reduced["CV Type"] == "10-Fold"].iloc[0]
+best_saturated = res_saturated[res_saturated["CV Type"] == "10-Fold"].iloc[0]
+
+rmse_reduced = float(best_reduced["RMSE"].split(" ")[0])
+rmse_saturated = float(best_saturated["RMSE"].split(" ")[0])
+rmse_diff = rmse_saturated - rmse_reduced
+
+r2_reduced = float(best_reduced["R²"].split(" ")[0])
+r2_saturated = float(best_saturated["R²"].split(" ")[0])
+r2_diff = r2_reduced - r2_saturated
+
+print(f"RMSE Improvement: {rmse_diff:.6f}")
+print(f"R² Improvement: {r2_diff:.6f}")
+
+```
+
+The results of the model selection and error testing were as follows:
+
+| Model | CV Type | RMSE | R2 |
+|----|----|----|----|
+| Saturated | Single Split (80/20) | 0.000290 | 0.168850 |
+| Saturated | 5-Fold | 0.000302 ± 0.000013 | 0.182854 ± 0.013367 |
+| Saturated | 10-Fold | 0.000302 ± 0.000019 | 0.181949 ± 0.032181 |
+| Saturated | LOOCV | 0.000234 ± 0.000190 | N/A |
+| Reduced (LASSO) | Single Split (80/20) | 0.000290 | 0.167391 |
+| Reduced (LASSO) | 5-Fold | 0.000302 ± 0.000013 | 0.182742 ± 0.013654 |
+| Reduced (LASSO) | 10-Fold | 0.000302 ± 0.000019 | 0.182019 ± 0.032142 |
+| Reduced (LASSO) | LOOCV | 0.000234 ± 0.000190 | N/A |
+
+### Model comparison and final selection
+
+Two multiple regression models were compared to predict the ratio of left hippocampus volume to total intracranial volume. The first was a **saturated model** including all 13 predictors. The second was a **reduced model** selected using LASSO, which kept 11 predictors and removed only *motsev* (motor severity) and *female* (sex). These two variables did not add independent predictive power once the others were included.
+
+Both models were evaluated using four cross-validation methods: single split (80/20), 5-fold, 10-fold, and leave-one-out (LOOCV). The results showed that the reduced LASSO model performed almost identically to the saturated model across all methods. The mean RMSE was around 0.00030 in every case, and the mean R² was around 0.18, indicating that both models explain roughly 18% of the variation in hippocampal ratio. The small RMSE standard deviations show that the models generalize consistently.
+
+The LOOCV results showed slightly lower RMSE values but much higher variability, which is expected given that each fold tests only one observation at a time. Between the 5-fold and 10-fold methods, the results were nearly identical, suggesting the model’s performance is stable regardless of the cross-validation scheme.
+
+Because both models have the same predictive accuracy, the **reduced LASSO model** is the better choice. It achieves the same level of error and explanatory power with fewer variables, making it simpler and easier to interpret.
+
+### Final model selection
+
+The final model kept 11 predictors: *naccmmse, disnsev, anxsev, naccgds, bpsys, bpdias, hrate, age, educ, height,* and *weight*.\
+It achieved an adjusted R² of about 0.19 and an overall model p-value below 0.001, meaning the predictors jointly explain a statistically significant amount of variation.
+
+Among the predictors, **age** and **naccmmse** (cognitive score) were the strongest effects. Older participants tended to have smaller hippocampal ratios, while higher cognitive scores were linked to larger ratios. **Anxiety severity, education, height, and weight** were also significant at the 0.05 level. Higher anxiety and taller height were associated with smaller hippocampal ratios, while heavier weight was associated with slightly larger ratios. Blood pressure and heart rate were not significant after adjusting for the other predictors.
+
+In summary, cross-validation results indicate that the reduced LASSO model generalizes well and performs consistently across folds. It explains a modest but meaningful share of variance in hippocampal structure, with age, cognition, and anxiety emerging as key factors.
+
+### Final model selection
+
+We then go on to interpret the coefficients of our final selected model.
+
+```{python}
+
+# assumes previous cell is run
+from sklearn.linear_model import LinearRegression
+import statsmodels.api as sm
+import numpy as np
+import pandas as pd
+
+# print what lasso kept and removed
+all_features = X.columns.tolist()
+kept_features = selected_features
+removed_features = [f for f in all_features if f not in kept_features]
+
+print("\n=== feature selection summary ===")
+print(f"total predictors: {len(all_features)}")
+print(f"features kept by lasso ({len(kept_features)}): {kept_features}")
+print(f"features removed by lasso ({len(removed_features)}): {removed_features}")
+
+# fit final model on selected features for interpretation
+X_final = X[kept_features]
+final_model = LinearRegression()
+final_model.fit(X_final, y)
+
+# get coefficients
+coef_df = pd.DataFrame({
+    "feature": kept_features,
+    "coefficient": final_model.coef_,
+})
+coef_df["abs_coef"] = np.abs(coef_df["coefficient"])
+coef_df = coef_df.sort_values("abs_coef", ascending=False).drop(columns="abs_coef")
+
+print("\n=== final selected model coefficients (LinearRegression) ===")
+print(coef_df.to_string(index=False))
+
+# optional: more detailed summary using statsmodels (includes t, p, R^2)
+X_sm = sm.add_constant(X_final)
+ols = sm.OLS(y, X_sm).fit()
+print("\n=== statsmodels OLS summary for final model ===")
+print(ols.summary())
+```
+
+**OLS Final Model Results:**
+
+![](images/ols%20results.png)
+
+The final reduced model, chosen using LASSO, kept 11 out of the 13 predictors and achieved an R² of about **0.192** (adjusted R² = **0.189**). This means the model explains around 19% of the variation in the outcome. While this is not a very high percentage, it is common in behavioral and medical data, where many factors are difficult to measure. The overall F-test (**F(11, 2688) = 58.14, p \< 0.001**) shows that the predictors together are statistically significant.
+
+Several variables stand out as important. **NACCMMSE** (a measure of cognitive performance) has a strong positive effect (**p \< 0.001**), meaning that higher cognitive scores are linked to higher predicted hippocampal ratios. **Age**, **Education**, **Height**, and **Weight** are also statistically significant (**p \< 0.001**). Age and height have negative effects, meaning older and taller individuals tend to have slightly smaller hippocampal ratios. Weight has a small positive effect.
+
+Among behavioral and physiological factors, **Anxiety Severity (ANXSEV)** is significant (**p = 0.018**) and negative, suggesting that higher anxiety levels are related to lower hippocampal ratios. **Disease Severity (DISNSEV)** and **Systolic Blood Pressure (BPSYS)** are only marginally significant (**p ≈ 0.085** and **p ≈ 0.090**), meaning their effects are weak and not fully reliable in this model.
+
+Some predictors such as **NACCGDS**, **Diastolic Blood Pressure (BPDIAS)**, and **Heart Rate (HRATE)** are not significant (**p \> 0.3**). These do not appear to add much unique information after including the other predictors, possibly because they are correlated with related variables.
+
+The **Durbin-Watson value (1.99)** shows that there is no major autocorrelation in the residuals, meaning the errors are not systematically related. The **Condition Number (6.41e+03)** is relatively high, which suggests some **multicollinearity**, or overlap between predictors. This is likely because variables like systolic and diastolic blood pressure or height and weight are correlated with each other.
+
+Overall, the LASSO-selected model provides a simpler and more interpretable version of the full model, while keeping similar predictive accuracy. The most important predictors are **Cognitive Score (NACCMMSE)**, **Age**, **Anxiety Severity (ANXSEV)**, **Education**, **Height**, and **Weight**, which together capture the main patterns in the data.
+
 ## 2. Logistic Regression Model
 
 Logistic regression is typically used with qualitative (two-class, or binary) response. Rather than modeling the response of Y directly, logistic regression models the probability that Y belongs to a particular category.\
@@ -60,15 +311,15 @@ form_all <- as.formula(
 )
 form_all
 
-fit_step_cv <- train(
+invisible(fit_step_cv <- train(
   form_all,
-  data = train,
+  data = train_data,
   method = "glmStepAIC",           
   family = binomial,
   metric = "ROC",                 
   trControl = ctrl,
   preProcess = c("center", "scale")
-)
+))
 
 fit_step_cv
 ```
@@ -141,11 +392,20 @@ model =  glmnet(X, Y, family = "multinomial")
 #plot(model)
 ```
 
+Next we will perform model validation and selection to improve upon the base model we already built. To do so, we will use cross validation with 5 and 10 folds as well as train/test split. Specifying `alpha=1` here performs LASSO regression which
+
+This performs several tasks in one - it allows us to compare models as well as ensure that our models don't overfit on the data.
+
 #### Cross-Validation with 5 Folds
 
 ```{r}
 cv5  = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 5)
 pred5  = predict(cv5, newx = X, s = "lambda.min", type = "class")
+
+# rmse
+Y_num = as.numeric(Y)
+pred_num5 = as.numeric(pred5)
+rmse5 = sqrt(mean((Y_num - pred_num5)^2))
 ```
 
 #### Cross-Validation with 10 Folds
@@ -153,6 +413,10 @@ pred5  = predict(cv5, newx = X, s = "lambda.min", type = "class")
 ```{r}
 cv10 = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 10)
 pred10 = predict(cv10, newx = X, s = "lambda.min", type = "class")
+
+# rmse
+pred_num10 = as.numeric(pred10)
+rmse10 = sqrt(mean((Y_num - pred_num10)^2))
 ```
 
 #### Train/Test Split
@@ -164,14 +428,23 @@ train_idx = sample(seq_len(nrow(X)), size = 0.8 * nrow(X))
 cv1 = glmnet(X[train_idx, ], Y[train_idx], family = "multinomial")
 pred = predict(cv1, newx = X[-train_idx, ], s = 0.01, type = "class")
 accuracy.ttsplit = mean(pred == Y[-train_idx])
+
+# rmse
+Y_test_num = as.numeric(Y[-train_idx])
+pred_num = as.numeric(pred)
+rmse = sqrt(mean((Y_test_num - pred_num)^2))
+print(paste("RMSE:", round(rmse, 3)))
 ```
 
 #### Multinomial Logistic Regression Model Results
 
+Overall, our strongest model was the one built using 10-fold cross validation. The accuracy of this model is 87% and its RMSE is the lowest out of the models that we tested. That being said, it is important to note that the model build from 5-fold cross validation has very similar statistics. This increases the confidence that I have in my model, as it tells me that our data was robust enough (2,700 rows) to properly train a model.
+
 ```{r}
 results = data.frame(
   Method = c("1-Fold (Train/Test)", "5-Fold", "10-Fold"),
-  Accuracy = c(accuracy.ttsplit, mean(pred5 == Y), mean(pred10 == Y))
+  Accuracy = c(accuracy.ttsplit, mean(pred5 == Y), mean(pred10 == Y)),
+  RMSE = c(rmse, rmse5, rmse10)
 )
 print(results)
 ```
