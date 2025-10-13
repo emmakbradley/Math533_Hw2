@@ -75,7 +75,7 @@ fit_step_cv <- train(
 fit_step_cv
 ```
 
-#### Multinomial Logistic Regression Model Results
+#### Logistic Regression Model Results
 
 The final model had strong predictive performance, with an accuracy of 94% and AUC of approximately 0.97 and balanced sensitivity and specificity. These results indicate that the logistic regression model was effective at distinguishing between AD and non-AD participants. Overall, logistic regression proved to be an interpretable and effective baseline approach for binary classification in this Alzheimer’s dataset.
 
