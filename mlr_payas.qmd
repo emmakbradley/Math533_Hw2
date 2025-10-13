@@ -43,7 +43,7 @@ The reason is that regular linear regression finds coefficients that minimize pr
 
 This helps create a simpler model that is simpler, easier to interpret, and less susceptible to noise from unimportant features.
 
-**DISCLAIMER:** The following code was translated using ChatGPT from the original Python: we have included the original Python code here as well for clearer understanding of logic and alignment to analysis.
+**DISCLAIMER:** The following code was translated using ChatGPT from the original Python: we have included the original Python code here as well for clearer understanding of logic and alignment to analysis .<https://chatgpt.com/share/68ec5896-3f38-8007-bacf-f4524206a9fa>
 
 **R Code for QMD Compilation:**
 
@@ -220,7 +220,7 @@ cat(sprintf("R² Improvement: %.6f\n",   r2_diff))
 
 **ORIGINAL PYTHON CODE:**
 
-``` {.py .py}
+``` python
 {python}
 # ------------------------------------------------------------
 # Model Comparison and Selection Using Cross-Validation and LASSO
@@ -373,7 +373,7 @@ In summary, cross-validation results indicate that the reduced LASSO model gener
 
 We then go on to interpret the coefficients of our final selected model.
 
-**DISCLAIMER:** The following code was translated using ChatGPT from the original Python: we have included the original Python code here as well for clearer understanding of logic and alignment to analysis.
+**DISCLAIMER:** The following code was translated using ChatGPT from the original Python: we have included the original Python code here as well for clearer understanding of logic and alignment to analysis. <https://chatgpt.com/share/68ec5896-3f38-8007-bacf-f4524206a9fa>
 
 **Compilable R Code:**
 
@@ -421,7 +421,9 @@ cat("\n=== R OLS summary for final model (lm) ===\n")
 print(summary(final_fit))
 ```
 
-``` Python
+**Original Python code:**
+
+``` python
 # Original Python code
 # assumes previous cell is run
 from sklearn.linear_model import LinearRegression
