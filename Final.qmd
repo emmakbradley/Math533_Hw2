@@ -1,0 +1,181 @@
+---
+title: "Alzheimers"
+format: pdf
+editor: visual
+---
+
+```{r}
+library(caret)
+library(pROC)
+library(glmnet) 
+library(here)
+```
+
+## 2. Logistic Regression Model
+
+Logistic regression is typically used with qualitative (two-class, or binary) response. Rather than modeling the response of Y directly, logistic regression models the probability that Y belongs to a particular category.\
+\
+One of the greatest advantages of logistic regression is the straightforward implementation and interpretation of model coefficients as changes in log-odds, which is great for practical understanding. It can also be extended to multiple classes (multinomial logistic regression) and allows for the interpretation of model coefficients as indicators of feature importance. However, logistic regression is limited in the sense that it may lead to an overfit model if the number of observations is less than the number of features. We also need to ensure that there does not exist multicollinearity in our data before using logistic regression. \
+\
+Using logistic regression in the context of Alzheimer’s research is advantageous because an individual can be classified to have AD or not. Thus, we are able to classify our outcome as a binary response. We also have more observations than predictors, reducing the concern of overfitting due to sample size limitations.\
+\
+The first step was to load our dataset and examine our predictors. Following that, we recoded the categories 1 and 2 as indicators of AD being present (coded as 1) and all other categories as not having AD (coded as 0).
+
+```{r}
+data = read.csv(here('alzheimer_data.csv'))
+
+#here is the variables we'll use as possible predictors 
+predictor_names = names(data)[3:57] 
+cat("All predictors given in the dataset:", "\n", predictor_names, "\n")
+
+#recode levels 1 and 2 to be 1
+data$diagnosis_bin <- ifelse(data$diagnosis %in% c(1, 2), 1, 0)
+
+#convert to factors 
+data$diagnosis_bin <- factor(data$diagnosis_bin, levels = c(0, 1), labels = c("NoAD", "AD"))
+
+cat("\n", "Category count:", "\n")
+table(data$diagnosis_bin)
+```
+
+Afterward, we checked for multicollinearity by looking at the correlation matrix and removed any variables with high pairwise correlations. This ensured that no redundant features would lead to biased coefficient estimates.
+
+Once the data were prepared, we implemented logistic regression using a stepwise model selection approach based on the AIC. This approach iteratively added or removed predictors to identify the most parsimonious model that balanced fit and complexity. We also performed 5-fold cross-validation to look at predictive performance. Finally, the model was evaluated on a test set using evaluation metrics such as accuracy, sensitivity, specificity, AUC. 
+
+```{r}
+set.seed(123)
+
+split_idx <- createDataPartition(data$diagnosis_bin, p = 0.8, list = FALSE)
+train_data <- data[split_idx, ]
+test_data  <- data[-split_idx, ]
+
+#cross validation
+ctrl <- trainControl(
+  method = "cv", number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = TRUE
+)
+
+form_all <- as.formula(
+  paste("diagnosis_bin ~", paste(predictor_names, collapse = " + "))
+)
+form_all
+
+fit_step_cv <- train(
+  form_all,
+  data = train,
+  method = "glmStepAIC",           
+  family = binomial,
+  metric = "ROC",                 
+  trControl = ctrl,
+  preProcess = c("center", "scale")
+)
+
+fit_step_cv
+```
+
+#### Logistic Regression Model Results
+
+The final model had strong predictive performance, with an accuracy of 94% and AUC of approximately 0.97 and balanced sensitivity and specificity. These results indicate that the logistic regression model was effective at distinguishing between AD and non-AD participants. Overall, logistic regression proved to be an interpretable and effective baseline approach for binary classification in this Alzheimer’s dataset.
+
+```{r}
+#to look at the coefficients of the final model from above 
+final_fit <- fit_step_cv$finalModel
+summary(final_fit)
+
+#evaluate everything on the test set and look at evaluation metrics 
+p_test <- predict(fit_step_cv, newdata = test_data, type = "prob")[, "AD"]
+roc_obj  <- roc(test_data$diagnosis_bin, p_test)
+auc_test <- auc(roc_obj)
+pred_class <- factor(ifelse(p_test > 0.5, "AD", "NoAD"),
+                     levels = c("NoAD", "AD"))
+cm <- confusionMatrix(pred_class, test_data$diagnosis_bin)
+auc_test
+cm$overall["Accuracy"]
+cm$byClass[c("Sensitivity", "Specificity")]
+```
+
+#### Interpretting the Coefficients of the Logistic Regression Model 
+
+\
+Interestingly, age showed a negative coefficient in the logistic model (−0.475). This means that holding all other variables constant, increasing age is associated with a lower log-odds of being classified as AD. This is something worth exploring further in AD literature. Additionally, weight also showed a negative coefficient (-0.3613). AD is often preceded by late-life weight loss and thus this association between higher body weight and low probability of AD from our logistic regression is consistent with what is commonly seen throughout AD research. In terms of cognitive ability, the ability to travel independently showed a positive coefficient in the logistic model (0.343). This can be interpreted as difficulty traveling independently indicates a higher likelihood of AD. Additionally, lower cognitive test scores strongly predict AD diagnosis and Poor memory performance indicate higher AD probability, with negative coefficients, -1.16 and -1.02 respectively. Frontal cortex volume showed a positive coefficient in the logistic model (0.429). This indicates that lower frontal cortical volume was associated with a higher probability of Alzheimer’s diagnosis, which is consistent with the role of frontal lobe atrophy as a neurodegenerative marker in AD progression.
+
+## 3. Multinomial Logistic Regression Model
+
+Next we will build a multinomial logsitic regression model so that we can see how adding in the third diagnosis option affects our results.
+
+Let's go ahead and select the same predictors as we used before to build the multinomial logsitic regression model.
+
+```{r}
+raw.data = read.csv(here('alzheimer_data.csv'))
+keep.cols = c( "diagnosis", 
+               "age", 
+               "educ", 
+               "weight", 
+               "cdrglob", 
+               "hallsev", 
+               "agitsev", 
+               "mealprep", 
+               "travel", 
+               "naccmmse", 
+               "memunits", 
+               "digif", 
+               "animals", 
+               "trailb", 
+               "csfvol", 
+               "frcort", 
+               "frcort", 
+               "lent", 
+               "lposcin", 
+               "rposcin")
+df = raw.data[, keep.cols, drop = FALSE]
+head(df)
+```
+
+We will use the package `glmnet` as it has a built in function that allows us to do multinomial logistic regression and the textbook recommends it. The function is simple and straightforward to use. We first specify our matrix of predictors and target variable. We also specify that the family we are using is multinomial.
+
+```{r}
+X = as.matrix(df[, 2:19]) # predictors
+Y =  df$diagnosis # target
+model =  glmnet(X, Y, family = "multinomial")
+summary(model)
+plot(model)
+```
+
+#### Cross-Validation with 5 Folds
+
+```{r}
+cv5  = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 5)
+pred5  = predict(cv5, newx = X, s = "lambda.min", type = "class")
+```
+
+#### Cross-Validation with 10 Folds
+
+```{r}
+cv10 = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 10)
+pred10 = predict(cv10, newx = X, s = "lambda.min", type = "class")
+```
+
+#### Train/Test Split
+
+```{r}
+# 80 / 20 split
+set.seed(533)
+train_idx = sample(seq_len(nrow(X)), size = 0.8 * nrow(X)) 
+cv1 = glmnet(X[train_idx, ], Y[train_idx], family = "multinomial")
+pred = predict(cv1, newx = X[-train_idx, ], s = 0.01, type = "class")
+accuracy.ttsplit = mean(pred == Y[-train_idx])
+```
+
+#### Multinomial Logistic Regression Model Results
+
+```{r}
+results = data.frame(
+  Method = c("1-Fold (Train/Test)", "5-Fold", "10-Fold"),
+  Accuracy = c(accuracy.ttsplit, mean(pred5 == Y), mean(pred10 == Y))
+)
+print(results)
+```
+
+#### Interpretting the Coefficients of the Multinomial Logistic Regression Model 
