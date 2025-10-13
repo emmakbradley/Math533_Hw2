@@ -43,9 +43,185 @@ The reason is that regular linear regression finds coefficients that minimize pr
 
 This helps create a simpler model that is simpler, easier to interpret, and less susceptible to noise from unimportant features.
 
-Here's the implementation:
+**DISCLAIMER:** The following code was translated using ChatGPT from the original Python: we have included the original Python code here as well for clearer understanding of logic and alignment to analysis.
 
-```{python}
+**R Code for QMD Compilation:**
+
+```{r}
+# ------------------------------------------------------------
+# Model Comparison and Selection Using Cross-Validation and LASSO (R)
+# ------------------------------------------------------------
+# install.packages(c("readr","dplyr","caret","glmnet","tibble"))
+library(readr)
+library(dplyr)
+library(caret)
+library(glmnet)
+library(tibble)
+
+set.seed(42)
+
+# Load and prepare data
+df <- read_csv("alzheimer_data.csv", show_col_types = FALSE)
+
+# Target: left hippocampus / intracranial volume
+y <- df$lhippo / df$naccicv
+
+# Predictors (saturated set)
+predictors <- c(
+  "naccmmse","motsev","disnsev","anxsev","naccgds",
+  "bpsys","bpdias","hrate","age","educ","female","height","weight"
+)
+
+X <- df[, predictors]
+
+# Helper to compute RMSE and R^2
+rmse_fun <- function(truth, pred) sqrt(mean((truth - pred)^2))
+r2_fun   <- function(truth, pred) {
+  ss_res <- sum((truth - pred)^2)
+  ss_tot <- sum((truth - mean(truth))^2)
+  1 - ss_res/ss_tot
+}
+
+# Helper function to compute CV metrics with clean output formatting
+evaluate_model <- function(X, y, name = "model") {
+  res <- list()
+  dat <- as.data.frame(X) %>% mutate(y = y)
+
+  # ----- Single train/test split (80/20)
+  idx_tr <- createDataPartition(dat$y, p = 0.80, list = FALSE)
+  tr <- dat[idx_tr, , drop = FALSE]
+  te <- dat[-idx_tr, , drop = FALSE]
+
+  fit_split <- lm(y ~ ., data = tr)
+  ypred_te  <- predict(fit_split, newdata = te)
+  rmse_split <- rmse_fun(te$y, ypred_te)
+  r2_split   <- r2_fun(te$y, ypred_te)
+
+  res[[length(res) + 1]] <- tibble(
+    Model = name,
+    `CV Type` = "Single Split (80/20)",
+    RMSE = sprintf("%.6f", rmse_split),
+    `R²` = sprintf("%.6f", r2_split)
+  )
+
+  # ----- 5-fold CV
+  ctrl5 <- trainControl(method = "cv", number = 5)
+  fit5  <- train(y ~ ., data = dat, method = "lm", trControl = ctrl5)
+  res5  <- fit5$results[which.max(fit5$results$Rsquared), ]
+  res[[length(res) + 1]] <- tibble(
+    Model = name,
+    `CV Type` = "5-Fold",
+    RMSE = sprintf("%.6f ± %.6f", res5$RMSE, res5$RMSESD),
+    `R²`  = sprintf("%.6f ± %.6f", res5$Rsquared, res5$RsquaredSD)
+  )
+
+  # ----- 10-fold CV
+  ctrl10 <- trainControl(method = "cv", number = 10)
+  fit10  <- train(y ~ ., data = dat, method = "lm", trControl = ctrl10)
+  res10  <- fit10$results[which.max(fit10$results$Rsquared), ]
+  res[[length(res) + 1]] <- tibble(
+    Model = name,
+    `CV Type` = "10-Fold",
+    RMSE = sprintf("%.6f ± %.6f", res10$RMSE, res10$RMSESD),
+    `R²`  = sprintf("%.6f ± %.6f", res10$Rsquared, res10$RsquaredSD)
+  )
+
+  # ----- LOOCV
+  ctrl_loo <- trainControl(method = "LOOCV")
+  fit_loo  <- train(y ~ ., data = dat, method = "lm", trControl = ctrl_loo)
+  res_loo  <- fit_loo$results
+  # caret's LOOCV often returns only means; SD may be NA. We format anyway.
+  rmse_mean <- res_loo$RMSE[1]
+  rmse_sd   <- if (!is.null(res_loo$RMSESD)) res_loo$RMSESD[1] else NA_real_
+
+  res[[length(res) + 1]] <- tibble(
+    Model = name,
+    `CV Type` = "LOOCV",
+    RMSE = if (is.na(rmse_sd)) sprintf("%.6f", rmse_mean) else sprintf("%.6f ± %.6f", rmse_mean, rmse_sd),
+    `R²`  = "N/A"
+  )
+
+  bind_rows(res)
+}
+
+# -------------------------
+# Evaluate saturated model
+# -------------------------
+cat("Evaluating Saturated Model...\n")
+res_saturated <- evaluate_model(X, y, name = "Saturated")
+print(res_saturated)
+
+# -------------------------
+# LASSO feature selection
+# -------------------------
+cat("\nPerforming LASSO Feature Selection...\n")
+
+# glmnet requires a numeric matrix (no intercept column)
+x_mat <- model.matrix(~ . , data = X)[, -1, drop = FALSE]
+cvfit <- cv.glmnet(
+  x = x_mat,
+  y = y,
+  alpha = 1,         # LASSO
+  nfolds = 10,
+  standardize = TRUE
+)
+
+# Extract selected features at lambda.min
+coefs <- coef(cvfit, s = "lambda.min")
+sel   <- rownames(coefs)[as.numeric(coefs) != 0]
+selected_features <- setdiff(sel, "(Intercept)")
+
+cat("\nSelected Features:\n")
+if (length(selected_features) == 0) {
+  cat("- (none selected; all coefficients shrank to zero)\n")
+} else {
+  for (f in selected_features) cat(paste0("- ", f, "\n"))
+}
+
+# -------------------------
+# Evaluate reduced model
+# -------------------------
+cat("\nEvaluating Reduced Model...\n")
+if (length(selected_features) == 0) {
+  # Fallback: if none selected, just re-use saturated to avoid errors
+  res_reduced <- evaluate_model(X, y, name = "Reduced (LASSO)")
+} else {
+  X_reduced <- X[, selected_features, drop = FALSE]
+  res_reduced <- evaluate_model(X_reduced, y, name = "Reduced (LASSO)")
+}
+print(res_reduced)
+
+# -------------------------
+# Model comparison summary (use 10-Fold row)
+# -------------------------
+cat("\nModel Comparison Summary:\n")
+get_10fold_rmse <- function(df) {
+  row <- df %>% filter(`CV Type` == "10-Fold") %>% slice(1)
+  # parse "mean ± sd" or "mean"
+  as.numeric(strsplit(row$RMSE, " ")[[1]][1])
+}
+get_10fold_r2 <- function(df) {
+  row <- df %>% filter(`CV Type` == "10-Fold") %>% slice(1)
+  as.numeric(strsplit(row$`R²`, " ")[[1]][1])
+}
+
+rmse_reduced    <- get_10fold_rmse(res_reduced)
+rmse_saturated  <- get_10fold_rmse(res_saturated)
+r2_reduced      <- get_10fold_r2(res_reduced)
+r2_saturated    <- get_10fold_r2(res_saturated)
+
+rmse_diff <- rmse_saturated - rmse_reduced
+r2_diff   <- r2_reduced - r2_saturated
+
+cat(sprintf("RMSE Improvement: %.6f\n", rmse_diff))
+cat(sprintf("R² Improvement: %.6f\n",   r2_diff))
+
+```
+
+**ORIGINAL PYTHON CODE:**
+
+``` {.py .py}
+{python}
 # ------------------------------------------------------------
 # Model Comparison and Selection Using Cross-Validation and LASSO
 # ------------------------------------------------------------
@@ -159,7 +335,6 @@ r2_diff = r2_reduced - r2_saturated
 
 print(f"RMSE Improvement: {rmse_diff:.6f}")
 print(f"R² Improvement: {r2_diff:.6f}")
-
 ```
 
 The results of the model selection and error testing were as follows:
@@ -198,8 +373,56 @@ In summary, cross-validation results indicate that the reduced LASSO model gener
 
 We then go on to interpret the coefficients of our final selected model.
 
-```{python}
+**DISCLAIMER:** The following code was translated using ChatGPT from the original Python: we have included the original Python code here as well for clearer understanding of logic and alignment to analysis.
 
+**Compilable R Code:**
+
+```{r}
+library(dplyr)
+library(tibble)
+
+all_features   <- colnames(X)
+kept_features  <- selected_features
+removed_features <- setdiff(all_features, kept_features)
+
+cat("\n=== feature selection summary ===\n")
+cat(sprintf("total predictors: %d\n", length(all_features)))
+cat(sprintf("features kept by lasso (%d): %s\n",
+            length(kept_features),
+            ifelse(length(kept_features) == 0, "[]", paste(kept_features, collapse = ", "))))
+cat(sprintf("features removed by lasso (%d): %s\n",
+            length(removed_features),
+            ifelse(length(removed_features) == 0, "[]", paste(removed_features, collapse = ", "))))
+
+if (length(kept_features) == 0) {
+  stop("No features selected by LASSO; cannot fit a reduced model.")
+}
+
+# Fit final model on selected features for interpretation
+X_final <- X[, kept_features, drop = FALSE]
+final_fit <- lm(y ~ ., data = as.data.frame(X_final))
+
+# Build coefficients table (excluding intercept), sorted by |coef|
+coefs <- coef(final_fit)
+coefs_no_int <- coefs[setdiff(names(coefs), "(Intercept)")]
+coef_df <- tibble(
+  feature = names(coefs_no_int),
+  coefficient = as.numeric(coefs_no_int)
+) %>%
+  mutate(abs_coef = abs(coefficient)) %>%
+  arrange(desc(abs_coef)) %>%
+  select(-abs_coef)
+
+cat("\n=== final selected model coefficients (lm) ===\n")
+print(coef_df, n = nrow(coef_df))
+
+# Detailed model summary (t-stats, p-values, R^2, etc.)
+cat("\n=== R OLS summary for final model (lm) ===\n")
+print(summary(final_fit))
+```
+
+``` Python
+# Original Python code
 # assumes previous cell is run
 from sklearn.linear_model import LinearRegression
 import statsmodels.api as sm
@@ -241,7 +464,7 @@ print(ols.summary())
 
 **OLS Final Model Results:**
 
-![](images/ols results.png)
+![](images/ols%20results.png)
 
 The final reduced model, chosen using LASSO, kept 11 out of the 13 predictors and achieved an R² of about **0.192** (adjusted R² = **0.189**). This means the model explains around 19% of the variation in the outcome. While this is not a very high percentage, it is common in behavioral and medical data, where many factors are difficult to measure. The overall F-test (**F(11, 2688) = 58.14, p \< 0.001**) shows that the predictors together are statistically significant.
 
