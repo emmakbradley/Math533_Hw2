@@ -96,7 +96,7 @@ cm$overall["Accuracy"]
 cm$byClass[c("Sensitivity", "Specificity")]
 ```
 
-#### Interpretting the Coefficients of the Logistic Regression Model 
+#### Interpretting the Coefficients of the Logistic Regression Model
 
 \
 Interestingly, age showed a negative coefficient in the logistic model (−0.475). This means that holding all other variables constant, increasing age is associated with a lower log-odds of being classified as AD. This is something worth exploring further in AD literature. Additionally, weight also showed a negative coefficient (-0.3613). AD is often preceded by late-life weight loss and thus this association between higher body weight and low probability of AD from our logistic regression is consistent with what is commonly seen throughout AD research. In terms of cognitive ability, the ability to travel independently showed a positive coefficient in the logistic model (0.343). This can be interpreted as difficulty traveling independently indicates a higher likelihood of AD. Additionally, lower cognitive test scores strongly predict AD diagnosis and Poor memory performance indicate higher AD probability, with negative coefficients, -1.16 and -1.02 respectively. Frontal cortex volume showed a positive coefficient in the logistic model (0.429). This indicates that lower frontal cortical volume was associated with a higher probability of Alzheimer’s diagnosis, which is consistent with the role of frontal lobe atrophy as a neurodegenerative marker in AD progression.
@@ -178,4 +178,4 @@ results = data.frame(
 print(results)
 ```
 
-#### Interpretting the Coefficients of the Multinomial Logistic Regression Model 
+#### Interpretting the Coefficients of the Multinomial Logistic Regression Model
