@@ -340,7 +340,7 @@ print(f"R² Improvement: {r2_diff:.6f}")
 The results of the model selection and error testing were as follows:
 
 | Model | CV Type | RMSE | R2 |
-|------------------|-------------------|------------------|------------------|
+|----|----|----|----|
 | Saturated | Single Split (80/20) | 0.000290 | 0.168850 |
 | Saturated | 5-Fold | 0.000302 ± 0.000013 | 0.182854 ± 0.013367 |
 | Saturated | 10-Fold | 0.000302 ± 0.000019 | 0.181949 ± 0.032181 |

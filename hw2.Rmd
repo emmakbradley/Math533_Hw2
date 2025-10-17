@@ -18,6 +18,10 @@ Demographics: Age, Educ, Female, Height, Weight
 library(glmnet) 
 set.seed(533)
 ```
+1. Modeling Process and Decisions
+
+Next we will build a multinomial logsitic regression model so that we can see how adding in the third diagnosis option affects our results. Let's go ahead and select the same predictors as we used before to build the multinomial logsitic regression model.
+
 
 ```{r}
 raw.data = read.csv('alzheimer_data.csv')
@@ -31,15 +35,19 @@ keep.cols = c( "diagnosis",
   "age", "educ", "female", "height", "weight"
 )
 
-df = raw.data[, keep.cols, drop = FALSE]
+keep.cols2 = c( "diagnosis", "age", "educ", "weight", "cdrglob", "hallsev", "agitsev", "mealprep", "travel", "naccmmse",
+                "memunits", "digif", "animals", "trailb", "csfvol", "frcort", "frcort", "lent", "lposcin", "rposcin")
+
+df = raw.data[, keep.cols2, drop = FALSE]
 # 2700 rows
 head(df)
 ```
 
+We will use the package `glmnet` as it has a built in function that allows us to do multinomial logistic regression and the textbook recommends it. The function is simple and straightforward to use. We first specify our matrix of predictors and target variable. We also specify that the family we are using is multinomial. 
+
 ```{r}
-X = as.matrix(df[, 2:14]) # predictors
+X = as.matrix(df[, 2:19]) # predictors
 Y =  df$diagnosis # target
-# Multinomial logistic regression
 model =  glmnet(X, Y, family = "multinomial")
 summary(model)
 plot(model)
@@ -47,6 +55,22 @@ plot(model)
 
 cross-validation with 5 folds
 both cv5 and cv10 performed better with alpha=1 (LASSO)
+
+Comparative Results Across Validation Strategies
+
+Summarize and compare model performance under different cross-validation approaches (LOOCV, single fold, 5-fold, 10-fold).
+
+Provide appropriate tables and/or figures to support your comparison.
+
+Interpretation of Model Coefficients
+
+Explain the meaning of the coefficients from the final selected models, connecting results to the context of Alzheimer’s research.
+
+Discussion of Modeling Approaches
+
+Reflect on the strengths and limitations of linear regression, binary logistic regression, and multinomial logistic regression.
+
+Discuss how these approaches provide complementary insights into the data.
 
 ```{r}
 cv5  = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 5)
@@ -63,7 +87,7 @@ cv10 = cv.glmnet(X, Y, family = "multinomial", alpha=1, nfolds = 10)
 pred10 = predict(cv10, newx = X, s = "lambda.min", type = "class")
 features10 = lapply(coef(cv10, s = "lambda.min"), function(mat) {
   rownames(mat)[which(mat != 0)]})
-features10
+#features10
 coef(cv10, s = "lambda.min")
 ```
 

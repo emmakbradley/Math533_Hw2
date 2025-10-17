@@ -5,6 +5,8 @@ editor: visual
 ---
 
 ```{r}
+#| message: false
+#| warning: false
 library(caret)
 library(pROC)
 library(glmnet) 
@@ -533,8 +535,14 @@ form_all <- as.formula(
   paste("diagnosis_bin ~", paste(predictor_names, collapse = " + "))
 )
 form_all
+```
 
-invisible(fit_step_cv <- train(
+```{r}
+#| echo: true
+#| warning: false
+#| message: false
+#| results: 'hide'
+fit_step_cv <- train(
   form_all,
   data = train_data,
   method = "glmStepAIC",           
@@ -542,9 +550,7 @@ invisible(fit_step_cv <- train(
   metric = "ROC",                 
   trControl = ctrl,
   preProcess = c("center", "scale")
-))
-
-fit_step_cv
+)
 ```
 
 #### Logistic Regression Model Results
